@@ -1,0 +1,57 @@
+name: Docker Image Release
+
+on:
+  push:
+    branches: [ "main" ]  # Roda apenas o teste em commits comuns
+    tags: [ 'v*' ]        # Roda o push no Docker Hub apenas quando você enviar uma tag (ex: v1.0.0)
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      # Define se deve fazer push: TRUE se for uma Tag, FALSE se for só um commit na main
+      - name: Check if this is a Tag release
+        id: check_tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "push=true" >> $GITHUB_OUTPUT
+          else
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
+      # Configura as tags da imagem (v1.0.0 e latest)
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: dhdiegoribeiro/qm-build-environment
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Só faz o login no Docker Hub se for uma publicação por Tag
+      - name: Log in to Docker Hub
+        if: steps.check_tag.outputs.push == 'true'
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # Compila sempre, mas só envia para o Docker Hub se for Tag
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ steps.check_tag.outputs.push == 'true' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
